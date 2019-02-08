@@ -177,15 +177,15 @@ describe UserDestroyer do
 
             before { destroy_opts[:delete_as_spammer] = true }
 
-            it "agrees with flags on user's posts" do
+            it "approves reviewable flags" do
               spammer_post = Fabricate(:post, user: @user)
-              flag = PostActionCreator.create(@admin, spammer_post, :inappropriate).post_action
-              expect(flag.agreed_at).to eq(nil)
+              reviewable = PostActionCreator.inappropriate(@admin, spammer_post).reviewable
+              expect(reviewable).to be_pending
 
               destroy
 
-              flag.reload
-              expect(flag.agreed_at).not_to eq(nil)
+              reviewable.reload
+              expect(reviewable).to be_approved
             end
 
           end

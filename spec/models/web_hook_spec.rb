@@ -392,36 +392,36 @@ describe WebHook do
       moderator = Fabricate(:moderator)
       Fabricate(:flag_web_hook)
 
-      post_action = PostActionCreator.create(admin, post, :spam).post_action
+      result = PostActionCreator.spam(admin, post)
       job_args = Jobs::EmitWebHookEvent.jobs.last["args"].first
 
       expect(job_args["event_name"]).to eq("flag_created")
       payload = JSON.parse(job_args["payload"])
-      expect(payload["id"]).to eq(post_action.id)
+      expect(payload["id"]).to eq(result.post_action.id)
 
-      PostAction.agree_flags!(post, moderator)
+      result.reviewable.perform(moderator, :agree)
       job_args = Jobs::EmitWebHookEvent.jobs.last["args"].first
 
       expect(job_args["event_name"]).to eq("flag_agreed")
       payload = JSON.parse(job_args["payload"])
-      expect(payload["id"]).to eq(post_action.id)
+      expect(payload["id"]).to eq(result.post_action.id)
 
-      post_action = PostActionCreator.create(Fabricate(:user), post, :spam).post_action
-      PostAction.clear_flags!(post, moderator)
+      result = PostActionCreator.spam(Fabricate(:user), post)
+      result.reviewable.perform(moderator, :disagree)
       job_args = Jobs::EmitWebHookEvent.jobs.last["args"].first
 
       expect(job_args["event_name"]).to eq("flag_disagreed")
       payload = JSON.parse(job_args["payload"])
-      expect(payload["id"]).to eq(post_action.id)
+      expect(payload["id"]).to eq(result.post_action.id)
 
       post = Fabricate(:post)
-      post_action = PostActionCreator.create(admin, post, :spam).post_action
-      PostAction.defer_flags!(post, moderator)
+      result = PostActionCreator.spam(admin, post)
+      result.reviewable.perform(moderator, :ignore)
       job_args = Jobs::EmitWebHookEvent.jobs.last["args"].first
 
       expect(job_args["event_name"]).to eq("flag_deferred")
       payload = JSON.parse(job_args["payload"])
-      expect(payload["id"]).to eq(post_action.id)
+      expect(payload["id"]).to eq(result.post_action.id)
     end
 
     # NOTE: Backwards compatibility, people should use reviewable instead

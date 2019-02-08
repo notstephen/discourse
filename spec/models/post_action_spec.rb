@@ -23,16 +23,16 @@ describe PostAction do
 
   context "messaging" do
 
-    it "notify moderators integration test" do
+    it "notifies moderators (integration test)" do
       post = create_post
       mod = moderator
       Group.refresh_automatic_groups!
 
-      action = PostActionCreator.notify_moderators(
+      result = PostActionCreator.notify_moderators(
         codinghorror,
         post,
         "this is my special long message"
-      ).post_action
+      )
 
       posts = Post.joins(:topic)
         .select('posts.id, topics.subtype, posts.topic_id')
@@ -40,7 +40,7 @@ describe PostAction do
         .to_a
 
       expect(posts.count).to eq(1)
-      expect(action.related_post_id).to eq(posts[0].id.to_i)
+      expect(result.post_action.related_post_id).to eq(posts[0].id.to_i)
       expect(posts[0].subtype).to eq(TopicSubtype.notify_moderators)
 
       topic = posts[0].topic
@@ -58,35 +58,36 @@ describe PostAction do
 
       # reply to PM should not clear flag
       PostCreator.new(mod, topic_id: posts[0].topic_id, raw: "This is my test reply to the user, it should clear flags").create
-      action.reload
-      expect(action.deleted_at).to eq(nil)
+      result.post_action.reload
+      expect(result.post_action.deleted_at).to eq(nil)
 
       # Acting on the flag should not post an automated status message (since a moderator already replied)
       expect(topic.posts.count).to eq(2)
-      PostAction.agree_flags!(post, admin)
-      expect(action.user.user_stat.flags_agreed).to eq(1)
-      expect(action.user.user_stat.flags_disagreed).to eq(0)
+
+      result.reviewable.perform(admin, :agree)
+      expect(result.post_action.user.user_stat.flags_agreed).to eq(1)
+      expect(result.post_action.user.user_stat.flags_disagreed).to eq(0)
 
       topic.reload
       expect(topic.posts.count).to eq(2)
 
       # Clearing the flags should not post an automated status message
-      new_action = PostActionCreator.notify_moderators(mod, post, "another special message").post_action
-      PostAction.clear_flags!(post, admin)
-      expect(new_action.user.user_stat.flags_agreed).to eq(0)
-      expect(new_action.user.user_stat.flags_disagreed).to eq(1)
+      result = PostActionCreator.notify_moderators(mod, post, "another special message")
+      result.reviewable.perform(admin, :disagree)
+      expect(result.post_action.user.user_stat.flags_agreed).to eq(0)
+      expect(result.post_action.user.user_stat.flags_disagreed).to eq(1)
       topic.reload
       expect(topic.posts.count).to eq(2)
 
       # Acting on the flag should post an automated status message
       another_post = create_post
-      action = PostActionCreator.notify_moderators(codinghorror, another_post, "foobar").post_action
-      topic = action.related_post.topic
+      result = PostActionCreator.notify_moderators(codinghorror, another_post, "foobar")
+      topic = result.post_action.related_post.topic
 
       expect(topic.posts.count).to eq(1)
-      PostAction.agree_flags!(another_post, admin)
-      expect(action.user.user_stat.flags_agreed).to eq(2)
-      expect(action.user.user_stat.flags_disagreed).to eq(0)
+      result.reviewable.perform(admin, :agree)
+      expect(result.post_action.user.user_stat.flags_agreed).to eq(2)
+      expect(result.post_action.user.user_stat.flags_disagreed).to eq(0)
 
       topic.reload
       expect(topic.posts.count).to eq(2)
@@ -103,10 +104,10 @@ describe PostAction do
     it "increments the numbers correctly" do
       expect(PostAction.flagged_posts_count).to eq(0)
 
-      PostActionCreator.off_topic(codinghorror, post)
+      result = PostActionCreator.off_topic(codinghorror, post)
       expect(PostAction.flagged_posts_count).to eq(1)
 
-      PostAction.clear_flags!(post, Discourse.system_user)
+      result.reviewable.perform(Discourse.system_user, :disagree)
       expect(PostAction.flagged_posts_count).to eq(0)
     end
 
@@ -156,10 +157,11 @@ describe PostAction do
     it "should ignore validated flags" do
       post = create_post
 
-      PostActionCreator.off_topic(codinghorror, post)
+      reviewable = PostActionCreator.off_topic(codinghorror, post).reviewable
       expect(post.hidden).to eq(false)
       expect(post.hidden_at).to be_blank
-      PostAction.defer_flags!(post, admin)
+
+      reviewable.perform(admin, :ignore)
       expect(PostAction.flagged_posts_count).to eq(0)
 
       post.reload
@@ -586,11 +588,11 @@ describe PostAction do
         expect(PostAction.flag_counts_for(post.id)).to eq([0, 1])
 
         # If staff takes action, it is ranked higher
-        PostActionCreator.new(admin, post, PostActionType.types[:spam], take_action: true).perform
+        result = PostActionCreator.new(admin, post, PostActionType.types[:spam], take_action: true).perform
         expect(PostAction.flag_counts_for(post.id)).to eq([0, 8])
 
         # If a flag is dismissed
-        PostAction.clear_flags!(post, admin)
+        result.reviewable.perform(admin, :disagree)
         expect(PostAction.flag_counts_for(post.id)).to eq([0, 8])
       end
     end
@@ -610,15 +612,13 @@ describe PostAction do
 
     it 'should update counts when you clear flags' do
       post = Fabricate(:post)
-      PostActionCreator.spam(eviltrout, post)
+      reviewable = PostActionCreator.spam(eviltrout, post).reviewable
 
-      post.reload
-      expect(post.spam_count).to eq(1)
+      expect(post.reload.spam_count).to eq(1)
 
-      PostAction.clear_flags!(post, Discourse.system_user)
+      reviewable.perform(Discourse.system_user, :disagree)
 
-      post.reload
-      expect(post.spam_count).to eq(0)
+      expect(post.reload.spam_count).to eq(0)
     end
 
     it "will not allow regular users to auto hide staff posts" do
@@ -987,62 +987,48 @@ describe PostAction do
     it "should not add a moderator post when it's disabled" do
       post = create_post
 
-      action = PostActionCreator.new(
-        moderator,
-        post,
-        PostActionType.types[:spam],
-        message: "WAT"
-      ).perform.post_action
-      action.reload
-      topic = action.related_post.topic
+      result = PostActionCreator.create(moderator, post, :spam, message: "WAT")
+      topic = result.post_action.related_post.topic
       expect(topic.posts.count).to eq(1)
 
       SiteSetting.auto_respond_to_flag_actions = false
-      PostAction.agree_flags!(post, admin)
-      expect(action.user.user_stat.flags_agreed).to eq(1)
+      result.reviewable.perform(admin, :agree)
+      expect(moderator.reload.user_stat.flags_agreed).to eq(1)
 
-      topic.reload
-      expect(topic.posts.count).to eq(1)
+      expect(topic.reload.posts.count).to eq(1)
     end
 
     it "should create a notification in the related topic" do
       SiteSetting.queue_jobs = false
       post = Fabricate(:post)
       user = Fabricate(:user)
-      action = PostActionCreator.new(
-        user,
-        post,
-        PostActionType.types[:spam],
-        message: "WAT"
-      ).perform.post_action
-      topic = action.reload.related_post.topic
+      result = PostActionCreator.create(user, post, :spam, message: "WAT")
+      topic = result.post_action.related_post.topic
+      reviewable = result.reviewable
       expect(user.notifications.count).to eq(0)
 
       SiteSetting.auto_respond_to_flag_actions = true
-      PostAction.agree_flags!(post, admin)
-      expect(action.user.user_stat.flags_agreed).to eq(1)
+      reviewable.perform(admin, :agree)
+      expect(user.reload.user_stat.flags_agreed).to eq(1)
 
       user_notifications = user.notifications
       expect(user_notifications.count).to eq(1)
       expect(user_notifications.last.topic).to eq(topic)
     end
 
-    it "should not add a moderator post when post is flagged via private message" do
+    # We are not creating reviewables for notify_user, should we be?
+    skip "should not add a moderator post when post is flagged via private message" do
       SiteSetting.queue_jobs = false
       post = Fabricate(:post)
       user = Fabricate(:user)
-      action = PostActionCreator.new(
-        user,
-        post,
-        PostActionType.types[:notify_user],
-        message: "WAT"
-      ).perform.post_action
+      result = PostActionCreator.create(user, post, :notify_user, message: "WAT")
+      action = result.post_action
       action.reload.related_post.topic
       expect(user.notifications.count).to eq(0)
 
       SiteSetting.auto_respond_to_flag_actions = true
-      PostAction.agree_flags!(post, admin)
-      expect(action.user.user_stat.flags_agreed).to eq(0)
+      result.reviewable.perform(admin, :agree)
+      expect(user.reload.user_stat.flags_agreed).to eq(0)
 
       user_notifications = user.notifications
       expect(user_notifications.count).to eq(0)
@@ -1112,29 +1098,41 @@ describe PostAction do
     end
 
     context "resolving flags" do
-      before do
-        @flag = PostActionCreator.spam(eviltrout, post).post_action
+      let(:result) { PostActionCreator.spam(eviltrout, post) }
+      let(:post_action) { result.post_action }
+      let(:reviewable) { result.reviewable }
+
+      it 'creates events for agreed' do
+        events = DiscourseEvent.track_events { reviewable.perform(moderator, :agree) }
+
+        reviewed_event = events.find { |e| e[:event_name] == :flag_reviewed }
+        expect(reviewed_event).to be_present
+
+        event = events.find { |e| e[:event_name] == :flag_agreed }
+        expect(event).to be_present
+        expect(event[:params]).to eq([post_action])
       end
 
-      it 'flag agreed' do
-        events = DiscourseEvent.track_events { PostAction.agree_flags!(post, moderator) }.last(2)
-        expect(events[0][:event_name]).to eq(:flag_reviewed)
-        expect(events[1][:event_name]).to eq(:flag_agreed)
-        expect(events[1][:params].first).to eq(@flag)
+      it 'creates events for disagreed' do
+        events = DiscourseEvent.track_events { reviewable.perform(moderator, :disagree) }
+
+        reviewed_event = events.find { |e| e[:event_name] == :flag_reviewed }
+        expect(reviewed_event).to be_present
+
+        event = events.find { |e| e[:event_name] == :flag_disagreed }
+        expect(event).to be_present
+        expect(event[:params]).to eq([post_action])
       end
 
-      it 'flag disagreed' do
-        events = DiscourseEvent.track_events { PostAction.clear_flags!(post, moderator) }.last(2)
-        expect(events[0][:event_name]).to eq(:flag_reviewed)
-        expect(events[1][:event_name]).to eq(:flag_disagreed)
-        expect(events[1][:params].first).to eq(@flag)
-      end
+      it 'creates events for ignored' do
+        events = DiscourseEvent.track_events { reviewable.perform(moderator, :ignore) }
 
-      it 'flag deferred' do
-        events = DiscourseEvent.track_events { PostAction.defer_flags!(post, moderator) }.last(2)
-        expect(events[0][:event_name]).to eq(:flag_reviewed)
-        expect(events[1][:event_name]).to eq(:flag_deferred)
-        expect(events[1][:params].first).to eq(@flag)
+        reviewed_event = events.find { |e| e[:event_name] == :flag_reviewed }
+        expect(reviewed_event).to be_present
+
+        event = events.find { |e| e[:event_name] == :flag_deferred }
+        expect(event).to be_present
+        expect(event[:params]).to eq([post_action])
       end
     end
   end

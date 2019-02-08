@@ -144,8 +144,8 @@ private
     GivenDailyLike.increment_for(@created_by.id) if @post_action_type_id == PostActionType.types[:like]
 
     # agree with other flags
-    if @take_action
-      PostAction.agree_flags!(@post, @created_by)
+    if @take_action && reviewable = @post.reviewable_flag
+      reviewable.perform(@created_by, :agree)
       post_action.try(:update_counters)
     end
 
@@ -202,6 +202,7 @@ private
     result.reviewable = ReviewableFlaggedPost.needs_review!(
       created_by: @created_by,
       target: @post,
+      topic: @post.topic,
       reviewable_by_moderator: true
     )
     result.reviewable.add_score(@created_by, @post_action_type_id)

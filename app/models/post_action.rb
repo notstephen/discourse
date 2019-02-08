@@ -145,14 +145,14 @@ class PostAction < ActiveRecord::Base
 
     post_actions = PostAction.active.flags.where(post_id: collection_ids)
 
-    user_actions = {}
+    counts_for = {}
     post_actions.each do |post_action|
-      user_actions[post_action.post_id] ||= {}
-      user_actions[post_action.post_id][post_action.post_action_type_id] ||= []
-      user_actions[post_action.post_id][post_action.post_action_type_id] << post_action
+      counts_for[post_action.post_id] ||= {}
+      counts_for[post_action.post_id][post_action.post_action_type_id] ||= []
+      counts_for[post_action.post_id][post_action.post_action_type_id] << post_action
     end
 
-    user_actions
+    counts_for
   end
 
   def self.count_per_day_for_type(post_action_type, opts = nil)
@@ -164,96 +164,6 @@ class PostAction < ActiveRecord::Base
     result.group('date(post_actions.created_at)')
       .order('date(post_actions.created_at)')
       .count
-  end
-
-  def self.agree_flags!(post, moderator, delete_post = false)
-    actions = PostAction.active
-      .where(post_id: post.id)
-      .where(post_action_type_id: PostActionType.notify_flag_types.values)
-
-    trigger_spam = false
-    actions.each do |action|
-      action.agreed_at = Time.zone.now
-      action.agreed_by_id = moderator.id
-      # so callback is called
-      action.save
-      action.add_moderator_post_if_needed(moderator, :agreed, delete_post)
-      trigger_spam = true if action.post_action_type_id == PostActionType.types[:spam]
-    end
-
-    # Update the flags_agreed user stat
-    UserStat.where(user_id: actions.map(&:user_id)).update_all("flags_agreed = flags_agreed + 1")
-
-    DiscourseEvent.trigger(:confirmed_spam_post, post) if trigger_spam
-
-    if actions.first.present?
-      DiscourseEvent.trigger(:flag_reviewed, post)
-      DiscourseEvent.trigger(:flag_agreed, actions.first)
-    end
-
-    update_flagged_posts_count
-  end
-
-  def self.clear_flags!(post, moderator)
-    # -1 is the automatic system cleary
-    action_type_ids =
-      if moderator.id == Discourse::SYSTEM_USER_ID
-        PostActionType.auto_action_flag_types.values
-      else
-        PostActionType.notify_flag_type_ids
-      end
-
-    actions = PostAction.active.where(post_id: post.id).where(post_action_type_id: action_type_ids)
-
-    actions.each do |action|
-      action.disagreed_at = Time.zone.now
-      action.disagreed_by_id = moderator.id
-      # so callback is called
-      action.save
-      action.add_moderator_post_if_needed(moderator, :disagreed)
-    end
-
-    # Update the flags_disagreed user stat
-    UserStat.where(user_id: actions.map(&:user_id)).update_all("flags_disagreed = flags_disagreed + 1")
-
-    # reset all cached counters
-    cached = {}
-    action_type_ids.each do |atid|
-      column = "#{PostActionType.types[atid]}_count"
-      cached[column] = 0 if ActiveRecord::Base.connection.column_exists?(:posts, column)
-    end
-
-    Post.with_deleted.where(id: post.id).update_all(cached)
-
-    if actions.first.present?
-      DiscourseEvent.trigger(:flag_reviewed, post)
-      DiscourseEvent.trigger(:flag_disagreed, actions.first)
-    end
-
-    update_flagged_posts_count
-
-    undo_hide_and_silence(post)
-  end
-
-  def self.defer_flags!(post, moderator, delete_post = false)
-    actions = PostAction.active
-      .where(post_id: post.id)
-      .where(post_action_type_id: PostActionType.notify_flag_type_ids)
-
-    actions.each do |action|
-      action.deferred_at = Time.zone.now
-      action.deferred_by_id = moderator.id
-      # so callback is called
-      action.save
-      action.add_moderator_post_if_needed(moderator, :deferred, delete_post)
-    end
-
-    if actions.first.present?
-      DiscourseEvent.trigger(:flag_reviewed, post)
-      DiscourseEvent.trigger(:flag_deferred, actions.first)
-    end
-
-    update_flagged_posts_count
   end
 
   def add_moderator_post_if_needed(moderator, disposition, delete_post = false)
@@ -287,13 +197,6 @@ class PostAction < ActiveRecord::Base
     ).perform
 
     result.success? ? result.post_action : nil
-  end
-
-  def self.undo_hide_and_silence(post)
-    return unless post.hidden?
-
-    post.unhide!
-    UserSilencer.unsilence(post.user) if UserSilencer.was_silenced_for?(post)
   end
 
   def self.copy(original_post, target_post)

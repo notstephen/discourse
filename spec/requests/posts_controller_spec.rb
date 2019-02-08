@@ -1405,14 +1405,14 @@ describe PostsController do
         post_disagreed = create_post(user: user)
 
         moderator = Fabricate(:moderator)
-        PostActionCreator.create(moderator, post_agreed, :spam)
-        PostActionCreator.create(moderator, post_deferred, :off_topic)
-        PostActionCreator.create(moderator, post_disagreed, :inappropriate)
+        r0 = PostActionCreator.spam(moderator, post_agreed).reviewable
+        r1 = PostActionCreator.off_topic(moderator, post_deferred).reviewable
+        r2 = PostActionCreator.inappropriate(moderator, post_disagreed).reviewable
 
         admin = Fabricate(:admin)
-        PostAction.agree_flags!(post_agreed, admin)
-        PostAction.defer_flags!(post_deferred, admin)
-        PostAction.clear_flags!(post_disagreed, admin)
+        r0.perform(admin, :agree)
+        r1.perform(admin, :ignore)
+        r2.perform(admin, :disagree)
 
         sign_in(Fabricate(:moderator))
         get "/posts/#{user.username}/flagged.json"

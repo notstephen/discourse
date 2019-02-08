@@ -30,8 +30,11 @@ class UserDestroyer
 
       if opts[:delete_posts]
         user.posts.each do |post|
+
           # agree with flags
-          PostAction.agree_flags!(post, @actor) if opts[:delete_as_spammer]
+          if opts[:delete_as_spammer] && reviewable = post.reviewable_flag
+            reviewable.perform(@actor, :agree)
+          end
 
           # block all external urls
           if opts[:block_urls]

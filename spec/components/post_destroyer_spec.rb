@@ -84,15 +84,15 @@ describe PostDestroyer do
 
       # flag the post, it should not nuke the stub anymore
       topic.recover!
-      PostActionCreator.create(Fabricate(:coding_horror), reply1, :spam)
+      reviewable = PostActionCreator.spam(Fabricate(:coding_horror), reply1).reviewable
 
       PostDestroyer.destroy_stubs
 
       reply1.reload
       expect(reply1.deleted_at).to eq(nil)
 
-      # defer the flag, we should be able to delete the stub
-      PostAction.defer_flags!(reply1, Discourse.system_user)
+      # ignore the flag, we should be able to delete the stub
+      reviewable.perform(Discourse.system_user, :ignore)
       PostDestroyer.destroy_stubs
 
       reply1.reload
@@ -629,7 +629,8 @@ describe PostDestroyer do
   describe "post actions" do
     let(:second_post) { Fabricate(:post, topic_id: post.topic_id) }
     let!(:bookmark) { PostActionCreator.create(moderator, second_post, :bookmark).post_action }
-    let!(:flag) { PostActionCreator.create(moderator, second_post, :off_topic).post_action }
+    let(:flag_result) { PostActionCreator.off_topic(moderator, second_post) }
+    let!(:flag) { flag_result.post_action }
 
     before do
       Jobs::SendSystemMessage.clear
@@ -685,9 +686,9 @@ describe PostDestroyer do
       expect(PostAction.flagged_posts_count).to eq(0)
     end
 
-    it "should not send the flags_agreed_and_post_deleted message if flags were deferred" do
+    it "should not send the flags_agreed_and_post_deleted message if flags were ignored" do
       expect(PostAction.flagged_posts_count).to eq(1)
-      PostAction.defer_flags!(second_post, moderator)
+      flag_result.reviewable.perform(moderator, :ignore)
       second_post.reload
       expect(PostAction.flagged_posts_count).to eq(0)
 

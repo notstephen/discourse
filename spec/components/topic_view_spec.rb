@@ -256,17 +256,17 @@ describe TopicView do
       end
 
       it 'returns the active flags' do
-        PostActionCreator.create(moderator, p1, :off_topic)
-        PostActionCreator.create(evil_trout, p1, :off_topic)
+        PostActionCreator.off_topic(moderator, p1)
+        PostActionCreator.off_topic(evil_trout, p1)
 
         expect(topic_view.all_active_flags[p1.id][PostActionType.types[:off_topic]].count).to eq(2)
       end
 
       it 'returns only the active flags' do
-        PostActionCreator.create(moderator, p1, :off_topic)
-        PostActionCreator.create(evil_trout, p1, :off_topic)
+        reviewable = PostActionCreator.off_topic(moderator, p1).reviewable
+        PostActionCreator.off_topic(evil_trout, p1)
 
-        PostAction.defer_flags!(p1, moderator)
+        reviewable.perform(moderator, :ignore)
 
         expect(topic_view.all_active_flags[p1.id]).to eq(nil)
       end

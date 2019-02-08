@@ -891,16 +891,15 @@ describe User do
     end
 
     it "does not flags post as spam if the previous flag for that post was disagreed" do
+      results = user.flag_linked_posts_as_spam
+
+      expect(post.reload.spam_count).to eq(1)
+
+      results.each { |result| result.reviewable.perform(admin, :disagree) }
+
       user.flag_linked_posts_as_spam
 
-      post.reload
-      expect(post.spam_count).to eq(1)
-
-      PostAction.clear_flags!(post, admin)
-      user.flag_linked_posts_as_spam
-
-      post.reload
-      expect(post.spam_count).to eq(0)
+      expect(post.reload.spam_count).to eq(0)
     end
 
   end
@@ -1367,16 +1366,13 @@ describe User do
 
     it "doesn't count disagreed flags" do
       post_agreed = Fabricate(:post)
-      PostActionCreator.create(user, post_agreed, :off_topic)
-      PostAction.agree_flags!(post_agreed, moderator)
+      PostActionCreator.inappropriate(user, post_agreed).reviewable.perform(moderator, :agree)
 
       post_deferred = Fabricate(:post)
-      PostActionCreator.create(user, post_deferred, :inappropriate)
-      PostAction.defer_flags!(post_deferred, moderator)
+      PostActionCreator.inappropriate(user, post_deferred).reviewable.perform(moderator, :ignore)
 
       post_disagreed = Fabricate(:post)
-      PostActionCreator.create(user, post_disagreed, :spam)
-      PostAction.clear_flags!(post_disagreed, moderator)
+      PostActionCreator.inappropriate(user, post_disagreed).reviewable.perform(moderator, :disagree)
 
       expect(user.number_of_flags_given).to eq(2)
     end

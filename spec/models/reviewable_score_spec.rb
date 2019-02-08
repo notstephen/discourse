@@ -7,21 +7,21 @@ RSpec.describe ReviewableScore, type: :model do
     let(:post) { Fabricate(:post) }
     let(:moderator) { Fabricate(:moderator) }
 
-    it "a score is agreed when the reviewable is approved" do
+    it "a score is agreed when the reviewable is agreed" do
       reviewable = PostActionCreator.spam(user, post).reviewable
       score = reviewable.reviewable_scores.find_by(user: user)
       expect(score).to be_pending
 
-      reviewable.perform(moderator, :approve)
+      reviewable.perform(moderator, :agree)
       expect(score.reload).to be_agreed
     end
 
-    it "a score is disagreed when the reviewable is rejected" do
+    it "a score is disagreed when the reviewable is disagreed" do
       reviewable = PostActionCreator.spam(user, post).reviewable
       score = reviewable.reviewable_scores.find_by(user: user)
       expect(score).to be_pending
 
-      reviewable.perform(moderator, :reject)
+      reviewable.perform(moderator, :disagree)
       expect(score.reload).to be_disagreed
     end
 

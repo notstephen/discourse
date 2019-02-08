@@ -146,11 +146,14 @@ class PostDestroyer
       update_associated_category_latest_topic
       update_user_counts
       TopicUser.update_post_action_cache(post_id: @post.id)
+
       DB.after_commit do
-        if @opts[:defer_flags].to_s == "true"
-          defer_flags
-        else
-          agree_with_flags
+        if reviewable = @post.reviewable_flag
+          if @opts[:defer_flags].to_s == "true"
+            ignore(reviewable)
+          else
+            agree(reviewable)
+          end
         end
       end
     end
@@ -225,8 +228,8 @@ class PostDestroyer
     end
   end
 
-  def agree_with_flags
-    if @post.has_active_flag? && @user.human? && @user.staff?
+  def agree(reviewable)
+    if @user.human? && @user.staff?
       Jobs.enqueue(
         :send_system_message,
         user_id: @post.user_id,
@@ -243,11 +246,11 @@ class PostDestroyer
       )
     end
 
-    PostAction.agree_flags!(@post, @user, delete_post: true)
+    reviewable.perform(@user, :agree, delete_post: true)
   end
 
-  def defer_flags
-    PostAction.defer_flags!(@post, @user, delete_post: true)
+  def ignore(reviewable)
+    reviewable.perform(@user, :ignore, delete_post: true)
   end
 
   def trash_user_actions

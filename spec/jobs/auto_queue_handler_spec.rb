@@ -5,21 +5,21 @@ describe Jobs::AutoQueueHandler do
   subject { Jobs::AutoQueueHandler.new.execute({}) }
 
   context "old flag" do
-    let!(:old) { Fabricate(:flag, created_at: 61.days.ago) }
-    let!(:not_old) { Fabricate(:flag, created_at: 59.days.ago) }
+    let!(:old) { Fabricate(:reviewable_flagged_post, created_at: 61.days.ago) }
+    let!(:not_old) { Fabricate(:reviewable_flagged_post, created_at: 59.days.ago) }
 
     it "defers the old flag if auto_handle_queued_age is 60" do
       SiteSetting.auto_handle_queued_age = 60
       subject
-      expect(not_old.reload.deferred_at).to be_nil
-      expect(old.reload.deferred_at).to_not be_nil
+      expect(not_old.reload).to be_pending
+      expect(old.reload).not_to be_pending
     end
 
     it "doesn't defer the old flag if auto_handle_queued_age is 0" do
       SiteSetting.auto_handle_queued_age = 0
       subject
-      expect(not_old.reload.deferred_at).to be_nil
-      expect(old.reload.deferred_at).to be_nil
+      expect(not_old.reload).to be_pending
+      expect(old.reload).to be_pending
     end
   end
 

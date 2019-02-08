@@ -455,8 +455,8 @@ class Post < ActiveRecord::Base
     post_actions.active.where(post_action_type_id: PostActionType.flag_types_without_custom.values)
   end
 
-  def has_active_flag?
-    active_flags.count != 0
+  def reviewable_flag
+    ReviewableFlaggedPost.pending.find_by(target: self)
   end
 
   def unhide!

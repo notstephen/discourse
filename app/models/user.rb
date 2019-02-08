@@ -958,6 +958,8 @@ class User < ActiveRecord::Base
 
   # Flag all posts from a user as spam
   def flag_linked_posts_as_spam
+    results = []
+
     disagreed_flag_post_ids = PostAction.where(post_action_type_id: PostActionType.types[:spam])
       .where.not(disagreed_at: nil)
       .pluck(:post_id)
@@ -967,8 +969,10 @@ class User < ActiveRecord::Base
       .each do |tl|
 
       message = I18n.t('flag_reason.spam_hosts', domain: tl.domain, base_path: Discourse.base_path)
-      PostActionCreator.create(Discourse.system_user, tl.post, :spam, message: message)
+      results << PostActionCreator.create(Discourse.system_user, tl.post, :spam, message: message)
     end
+
+    results
   end
 
   def has_uploaded_avatar

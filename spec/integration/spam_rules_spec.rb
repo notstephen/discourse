@@ -42,34 +42,19 @@ describe "spam rules for users" do
         end
 
         context 'one spam post is flagged enough times by enough users' do
-          let!(:another_topic)          { Fabricate(:topic) }
+          let!(:another_topic) { Fabricate(:topic) }
           let!(:private_messages_count) { spammer.private_topics_count }
-          let!(:mod_pm_count)           { moderator.private_topics_count }
+          let!(:mod_pm_count) { moderator.private_topics_count }
+          let!(:reviewable) { PostActionCreator.spam(user2, spam_post).reviewable }
 
-          before do
-            PostActionCreator.create(user2, spam_post, :spam)
-
+          it 'should hide the posts' do
             expect(Guardian.new(spammer).can_create_topic?(nil)).to be(false)
             expect { PostCreator.create(spammer, title: 'limited time offer for you', raw: 'better buy this stuff ok', archetype_id: 1) }.to raise_error(Discourse::InvalidAccess)
             expect(PostCreator.create(spammer, topic_id: another_topic.id, raw: 'my reply is spam in your topic', archetype_id: 1)).to eq(nil)
-          end
-
-          it 'should hide the posts' do
             expect(spammer.reload).to be_silenced
             expect(spam_post.reload).to be_hidden
             expect(spam_post2.reload).to be_hidden
             expect(spammer.reload.private_topics_count).to eq(private_messages_count + 1)
-          end
-
-          # The following cases describe when a staff user takes some action, but the user
-          # still won't be able to make posts.
-          # A staff user needs to clear the silenced flag from the user record.
-
-          context "a post's flags are cleared" do
-            it 'should silence the spammer' do
-              PostAction.clear_flags!(spam_post, admin); spammer.reload
-              expect(spammer.reload).to be_silenced
-            end
           end
 
           context "a post is deleted" do

@@ -53,12 +53,13 @@ class Reviewable < ActiveRecord::Base
   # pending state and re-use it.
   #
   # You probably want to call this to create your reviewable rather than `.create`.
-  def self.needs_review!(target: nil, created_by:, payload: nil, reviewable_by_moderator: false)
+  def self.needs_review!(target: nil, topic: nil, created_by:, payload: nil, reviewable_by_moderator: false)
     target_created_by_id = target.is_a?(Post) ? target.user_id : nil
 
     create!(
       target: target,
       target_created_by_id: target_created_by_id,
+      topic: topic,
       created_by: created_by,
       reviewable_by_moderator: reviewable_by_moderator
     )
