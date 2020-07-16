@@ -10,6 +10,8 @@ Create your new cloud server, for example [on DigitalOcean][do]:
 
 - The default of **1 GB** RAM works fine for small Discourse communities. We recommend 2 GB RAM for larger communities.
 
+- Discourse requires **25GB** of SSD-class storage.
+
 - The default of **New York** is a good choice for most US and European audiences. Or select a region that is geographically closer to your audience.
 
 - Enter your domain `discourse.example.com` as the Droplet name.
